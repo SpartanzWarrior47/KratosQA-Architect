@@ -1,0 +1,52 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Active Coverage Gap Filler — auto-triggers post-regression, scans all pages
+# ──────────────────────────────────────────────────────────────────────────────
+name: AI Coverage Gap Analyzer
+
+on:
+  workflow_run:
+    workflows: [ "Full Regression Suite" ]
+    types: [ completed ]
+  schedule:
+    - cron: '0 0 * * 0'   # Weekly Sunday
+  workflow_dispatch:
+    inputs:
+      page_object:
+        description: 'Specific page to analyze (empty = all)'
+        required: false
+        default: ''
+      force_all:
+        description: 'Force scan all pages even if gap PRs exist'
+        required: false
+        default: 'false'
+        type: choice
+        options: [ 'false', 'true' ]
+
+jobs:
+  analyze:
+    name: Active Coverage Gap Filling
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, token: '${{ secrets.GH_PAT }}' }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install anthropic
+      - name: Run Active Coverage Gap Filler
+        run: |
+          PAGE="${{ github.event.inputs.page_object }}"
+          FORCE="${{ github.event.inputs.force_all || 'false' }}"
+          if [ -n "$PAGE" ]; then
+            python .github/scripts/coverage_gap_analyzer.py --page "$PAGE" --force "$FORCE"
+          else
+            python .github/scripts/coverage_gap_analyzer.py --all --force "$FORCE"
+          fi
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN:          ${{ secrets.GH_PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN:      ${{ secrets.GH_PAT }}

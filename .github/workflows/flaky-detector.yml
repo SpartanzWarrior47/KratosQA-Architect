@@ -1,0 +1,55 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# FlakyDetectorAgent — Weekly + post-regression flaky detection + auto-quarantine
+# ──────────────────────────────────────────────────────────────────────────────
+name: FlakyDetectorAgent
+
+on:
+  schedule:
+    - cron: '30 2 * * 1'    # Monday 02:30 UTC
+  workflow_run:
+    workflows: [ "Full Regression Suite" ]
+    types: [ completed ]
+  workflow_dispatch:
+    inputs:
+      flaky_threshold:
+        description: 'Pass rate threshold % (below = flaky)'
+        required: false
+        default: '90'
+      enable_quarantine:
+        description: 'Auto-quarantine CRITICAL+HIGH flaky tests via PR'
+        required: false
+        default: 'true'
+        type: choice
+        options: [ 'true', 'false' ]
+      quarantine_severity:
+        description: 'Minimum severity to quarantine'
+        required: false
+        default: 'HIGH'
+        type: choice
+        options: [ 'CRITICAL', 'HIGH', 'MEDIUM' ]
+
+jobs:
+  detect-flaky:
+    name: Detect Flaky Tests + Auto-Quarantine
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Run FlakyDetectorAgent
+        run: python .github/scripts/flaky_detector.py
+        env:
+          GH_PAT:               ${{ secrets.GH_PAT }}
+          GITHUB_REPOSITORY:    ${{ github.repository }}
+          GITHUB_RUN_NUMBER:    ${{ github.run_number }}
+          GITHUB_SERVER_URL:    ${{ github.server_url }}
+          GITHUB_RUN_ID:        ${{ github.run_id }}
+          SLACK_WEBHOOK_URL:    ${{ secrets.SLACK_WEBHOOK_URL }}
+          GITHUB_STEP_SUMMARY:  ${{ github.step_summary }}
+          FLAKY_THRESHOLD:      ${{ github.event.inputs.flaky_threshold || '90' }}
+          ENABLE_QUARANTINE:    ${{ github.event.inputs.enable_quarantine || 'true' }}
+          QUARANTINE_SEVERITY:  ${{ github.event.inputs.quarantine_severity || 'HIGH' }}

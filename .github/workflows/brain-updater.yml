@@ -1,0 +1,57 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Test Intelligence Brain — Updates persistent knowledge store post-regression
+# ──────────────────────────────────────────────────────────────────────────────
+name: Test Intelligence Brain
+
+on:
+  workflow_run:
+    workflows: [ "Full Regression Suite" ]
+    types: [ completed ]
+  workflow_dispatch:
+
+jobs:
+  update-brain:
+    name: Update Intelligence Brain
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - name: Download Allure Results — Chromium
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          github_token: ${{ secrets.GH_PAT }}
+          workflow: regression.yml
+          name_is_regexp: true
+          name: allure-results-chromium-.*
+          path: target/allure-results/merged/
+          if_no_artifact_found: warn
+
+      - name: Download Allure Results — Firefox
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          github_token: ${{ secrets.GH_PAT }}
+          workflow: regression.yml
+          name_is_regexp: true
+          name: allure-results-firefox-.*
+          path: target/allure-results/merged/
+          if_no_artifact_found: warn
+
+      - name: Update Test Intelligence Brain
+        run: python .github/scripts/brain_updater.py
+        env:
+          GH_PAT:             ${{ secrets.GH_PAT }}
+          GITHUB_REPOSITORY:  ${{ github.repository }}
+          GITHUB_RUN_NUMBER:  ${{ github.run_number }}
+          GITHUB_SHA:         ${{ github.sha }}
+          ALLURE_RESULTS_DIR: target/allure-results/merged
+          BROWSER:            both
+
+      - name: Report
+        run: |
+          echo "### 🧠 Brain Updated" >> $GITHUB_STEP_SUMMARY
+          echo "Stores: failure_root_causes.json, flaky_patterns.json, risky_modules.json, stable_locators.json" >> $GITHUB_STEP_SUMMARY

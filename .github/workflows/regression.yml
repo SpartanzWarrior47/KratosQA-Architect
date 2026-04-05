@@ -1,0 +1,185 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Full Regression Suite — 3-Job Pipeline
+# select-tests → prioritize-tests → regression
+# ──────────────────────────────────────────────────────────────────────────────
+name: Full Regression Suite
+
+on:
+  schedule:
+    - cron: '0 1 * * *'      # Nightly
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: 'Browser (all / chromium / firefox)'
+        required: false
+        default: 'all'
+        type: choice
+        options: [ all, chromium, firefox ]
+      headless:
+        description: 'Run headless'
+        required: false
+        default: 'true'
+        type: choice
+        options: [ 'true', 'false' ]
+      force_full_run:
+        description: 'Force full suite (skip intelligent selection)'
+        required: false
+        default: 'false'
+        type: choice
+        options: [ 'true', 'false' ]
+
+jobs:
+
+  # Job 1 — Intelligent test selection (rule-based git diff)
+  select-tests:
+    name: Intelligent Test Selection
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      selected_tests:  ${{ steps.selector.outputs.selected_tests }}
+      run_all:         ${{ steps.selector.outputs.run_all }}
+      ci_only_change:  ${{ steps.selector.outputs.ci_only_change }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Run IntelligentTestSelector
+        id: selector
+        env:
+          GH_PAT:            ${{ secrets.GH_PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA:        ${{ github.sha }}
+          BEFORE_SHA:        ${{ github.event.before }}
+          GITHUB_OUTPUT:     ${{ env.GITHUB_OUTPUT }}
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] || \
+             [ "${{ github.event.inputs.force_full_run }}" = "true" ]; then
+            echo "selected_tests=LoginTests,InventoryTests,CartTests,CheckoutTests" >> $GITHUB_OUTPUT
+            echo "run_all=true" >> $GITHUB_OUTPUT
+            echo "ci_only_change=false" >> $GITHUB_OUTPUT
+          else
+            python .github/scripts/select_tests.py
+          fi
+
+  # Job 2 — LLM risk prioritization (Claude + Brain)
+  prioritize-tests:
+    name: LLM Test Prioritization
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    needs: select-tests
+    if: needs.select-tests.outputs.ci_only_change != 'true'
+    outputs:
+      prioritized_tests: ${{ steps.prioritizer.outputs.prioritized_tests }}
+      overall_risk:      ${{ steps.prioritizer.outputs.overall_risk }}
+      risk_summary:      ${{ steps.prioritizer.outputs.risk_summary }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Run LLM Test Prioritizer
+        id: prioritizer
+        env:
+          ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_PAT:              ${{ secrets.GH_PAT }}
+          GITHUB_REPOSITORY:   ${{ github.repository }}
+          GITHUB_SHA:          ${{ github.sha }}
+          BEFORE_SHA:          ${{ github.event.before }}
+          SELECTED_TESTS:      ${{ needs.select-tests.outputs.selected_tests }}
+          GITHUB_OUTPUT:       ${{ env.GITHUB_OUTPUT }}
+          GITHUB_STEP_SUMMARY: ${{ github.step_summary }}
+          SLACK_WEBHOOK_URL:   ${{ secrets.SLACK_WEBHOOK_URL }}
+          GITHUB_RUN_NUMBER:   ${{ github.run_number }}
+          GITHUB_SERVER_URL:   ${{ github.server_url }}
+          GITHUB_RUN_ID:       ${{ github.run_id }}
+        run: python .github/scripts/llm_prioritizer.py
+
+  # Job 3 — Run tests in prioritized order
+  regression:
+    name: Full Regression — ${{ matrix.browser }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    needs: [ select-tests, prioritize-tests ]
+    if: needs.select-tests.outputs.ci_only_change != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [ chromium, firefox ]
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    steps:
+      - name: Check browser filter
+        id: filter
+        run: |
+          INPUT="${{ github.event.inputs.browser }}"
+          CURRENT="${{ matrix.browser }}"
+          if [ -n "$INPUT" ] && [ "$INPUT" != "all" ] && [ "$INPUT" != "$CURRENT" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.filter.outputs.skip != 'true'
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-java@v4
+        if: steps.filter.outputs.skip != 'true'
+        with: { java-version: '17', distribution: 'temurin', cache: maven }
+
+      - name: Cache Playwright browsers
+        if: steps.filter.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ matrix.browser }}-${{ hashFiles('pom.xml') }}
+
+      - name: Install Playwright
+        if: steps.filter.outputs.skip != 'true'
+        run: mvn exec:java -e -D exec.mainClass=com.microsoft.playwright.CLI -D exec.args="install ${{ matrix.browser }}"
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
+
+      - name: Run Tests
+        if: steps.filter.outputs.skip != 'true'
+        id: run_tests
+        continue-on-error: true
+        run: |
+          TIMEOUT=60000
+          [ "${{ matrix.browser }}" = "firefox" ] && TIMEOUT=90000
+          TESTS="${{ needs.prioritize-tests.outputs.prioritized_tests }}"
+          [ -z "$TESTS" ] && TESTS="${{ needs.select-tests.outputs.selected_tests }}"
+          echo "[CI] Risk: ${{ needs.prioritize-tests.outputs.overall_risk }}"
+          echo "[CI] Tests: $TESTS"
+          mvn test -U -Denv=ci -Dbrowser=${{ matrix.browser }} \
+            -Dheadless=${{ github.event.inputs.headless || 'true' }} \
+            -Ddefault.timeout=$TIMEOUT -Dtest="$TESTS"
+
+      - name: Generate Allure Report
+        if: steps.filter.outputs.skip != 'true'
+        run: mvn allure:report
+
+      - name: Upload Allure Results
+        if: steps.filter.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results-${{ matrix.browser }}-${{ github.run_number }}
+          path: target/allure-results/
+          retention-days: 14
+
+      - name: Deploy Allure Report
+        if: steps.filter.outputs.skip != 'true' && matrix.browser == 'chromium'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          personal_token: ${{ secrets.GH_PAT }}
+          publish_branch: gh-pages
+          publish_dir: target/allure-report
+
+      - name: Check test results
+        if: steps.filter.outputs.skip != 'true' && steps.run_tests.outcome == 'failure'
+        run: exit 1

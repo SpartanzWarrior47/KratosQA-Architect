@@ -1,0 +1,50 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# AutoFixerAgent — Safe Autonomous Locator Fix (L1 only, PR only, no auto-merge)
+# ──────────────────────────────────────────────────────────────────────────────
+name: AutoFixerAgent
+
+on:
+  workflow_run:
+    workflows: [ "AI Failure Analysis" ]
+    types: [ completed ]
+  workflow_dispatch:
+
+jobs:
+  auto-fix:
+    name: AutoFixerAgent — Safe Locator Fix
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    if: >
+      github.event.workflow_run.conclusion == 'failure' ||
+      github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - name: Download Allure Results — Chromium
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          github_token: ${{ secrets.GH_PAT }}
+          workflow: regression.yml
+          name_is_regexp: true
+          name: allure-results-chromium-.*
+          path: target/allure-results/merged/
+          if_no_artifact_found: warn
+
+      - name: Run AutoFixerAgent
+        run: python .github/scripts/auto_fixer.py
+        env:
+          ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_PAT:              ${{ secrets.GH_PAT }}
+          GITHUB_REPOSITORY:   ${{ github.repository }}
+          GITHUB_RUN_NUMBER:   ${{ github.run_number }}
+          GITHUB_RUN_ID:       ${{ github.run_id }}
+          GITHUB_SERVER_URL:   ${{ github.server_url }}
+          GITHUB_STEP_SUMMARY: ${{ github.step_summary }}
+          SLACK_WEBHOOK_URL:   ${{ secrets.SLACK_WEBHOOK_URL }}
+          ALLURE_RESULTS_DIR:  target/allure-results/merged
+          AI_CLASSIFICATION:   L1

@@ -1,0 +1,79 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# AI Requirement → Test Strategy (with RequirementValidatorAgent)
+# ──────────────────────────────────────────────────────────────────────────────
+name: AI Requirement → Test Strategy
+
+on:
+  workflow_dispatch:
+    inputs:
+      requirement:
+        description: 'Product requirement in plain English'
+        required: true
+        type: string
+      next_tc_id:
+        description: 'Next TC-NNN number'
+        required: false
+        default: '1'
+      skip_validation:
+        description: 'Skip RequirementValidatorAgent (emergency only)'
+        required: false
+        default: 'false'
+        type: choice
+        options: [ 'false', 'true' ]
+      strict_validation:
+        description: 'Strict mode — treat WARN as BLOCK'
+        required: false
+        default: 'false'
+        type: choice
+        options: [ 'false', 'true' ]
+
+jobs:
+  generate-strategy:
+    name: Validate + Generate Test Strategy
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - name: Validate Requirement
+        id: validate
+        run: python .github/scripts/req_validator.py "${{ github.event.inputs.requirement }}"
+        env:
+          ANTHROPIC_API_KEY:      ${{ secrets.ANTHROPIC_API_KEY }}
+          SKIP_VALIDATION:        ${{ github.event.inputs.skip_validation }}
+          VALIDATION_STRICT_MODE: ${{ github.event.inputs.strict_validation }}
+          GITHUB_OUTPUT:          ${{ env.GITHUB_OUTPUT }}
+
+      - name: Generate Test Strategy
+        if: steps.validate.outputs.validation_passed != 'false'
+        run: python .github/scripts/req_to_strategy.py
+        env:
+          ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
+          REQUIREMENT:         ${{ github.event.inputs.requirement }}
+          NEXT_TC_ID:          ${{ github.event.inputs.next_tc_id }}
+          SKIP_VALIDATION:     'true'
+          GITHUB_STEP_SUMMARY: ${{ github.step_summary }}
+          GITHUB_RUN_NUMBER:   ${{ github.run_number }}
+          GITHUB_SERVER_URL:   ${{ github.server_url }}
+          GITHUB_RUN_ID:       ${{ github.run_id }}
+          SLACK_WEBHOOK_URL:   ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Commit strategy
+        if: steps.validate.outputs.validation_passed != 'false'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add qa-reports/
+          git diff --staged --quiet || git commit -m "docs: AI test strategy — run #${{ github.run_number }}"
+          git push
+
+      - name: Fail if blocked
+        if: steps.validate.outputs.validation_passed == 'false'
+        run: |
+          echo "❌ Requirement validation BLOCKED"
+          echo "Clarify the requirement and re-run."
+          exit 1
