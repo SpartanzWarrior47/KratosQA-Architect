@@ -1,14 +1,7 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Active Coverage Gap Filler — auto-triggers post-regression, scans all pages
-# ──────────────────────────────────────────────────────────────────────────────
+# Portfolio showcase — manual trigger only
+# Auto-triggers disabled. Adapt to your project before enabling.
 name: AI Coverage Gap Analyzer
-
 on:
-  workflow_run:
-    workflows: [ "Full Regression Suite" ]
-    types: [ completed ]
-  schedule:
-    - cron: '0 0 * * 0'   # Weekly Sunday
   workflow_dispatch:
     inputs:
       page_object:
@@ -21,7 +14,6 @@ on:
         default: 'false'
         type: choice
         options: [ 'false', 'true' ]
-
 jobs:
   analyze:
     name: Active Coverage Gap Filling

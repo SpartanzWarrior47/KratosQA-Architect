@@ -1,14 +1,14 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # Full Regression Suite — 3-Job Pipeline
 # select-tests → prioritize-tests → regression
+#
+# NOTE: This is a PORTFOLIO SHOWCASE workflow.
+# Auto-triggers are disabled — this workflow is provided as an architecture
+# reference. Adapt triggers and test commands to your actual project.
 # ──────────────────────────────────────────────────────────────────────────────
 name: Full Regression Suite
 
 on:
-  schedule:
-    - cron: '0 1 * * *'      # Nightly
-  push:
-    branches: [ main ]
   workflow_dispatch:
     inputs:
       browser:
@@ -55,8 +55,7 @@ jobs:
           BEFORE_SHA:        ${{ github.event.before }}
           GITHUB_OUTPUT:     ${{ env.GITHUB_OUTPUT }}
         run: |
-          if [ "${{ github.event_name }}" = "schedule" ] || \
-             [ "${{ github.event.inputs.force_full_run }}" = "true" ]; then
+          if [ "${{ github.event.inputs.force_full_run }}" = "true" ]; then
             echo "selected_tests=LoginTests,InventoryTests,CartTests,CheckoutTests" >> $GITHUB_OUTPUT
             echo "run_all=true" >> $GITHUB_OUTPUT
             echo "ci_only_change=false" >> $GITHUB_OUTPUT
@@ -123,28 +122,23 @@ jobs:
           else
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
-
       - uses: actions/checkout@v4
         if: steps.filter.outputs.skip != 'true'
         with: { fetch-depth: 0 }
-
       - uses: actions/setup-java@v4
         if: steps.filter.outputs.skip != 'true'
         with: { java-version: '17', distribution: 'temurin', cache: maven }
-
       - name: Cache Playwright browsers
         if: steps.filter.outputs.skip != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ matrix.browser }}-${{ hashFiles('pom.xml') }}
-
       - name: Install Playwright
         if: steps.filter.outputs.skip != 'true'
         run: mvn exec:java -e -D exec.mainClass=com.microsoft.playwright.CLI -D exec.args="install ${{ matrix.browser }}"
         env:
           PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
-
       - name: Run Tests
         if: steps.filter.outputs.skip != 'true'
         id: run_tests
@@ -154,16 +148,12 @@ jobs:
           [ "${{ matrix.browser }}" = "firefox" ] && TIMEOUT=90000
           TESTS="${{ needs.prioritize-tests.outputs.prioritized_tests }}"
           [ -z "$TESTS" ] && TESTS="${{ needs.select-tests.outputs.selected_tests }}"
-          echo "[CI] Risk: ${{ needs.prioritize-tests.outputs.overall_risk }}"
-          echo "[CI] Tests: $TESTS"
           mvn test -U -Denv=ci -Dbrowser=${{ matrix.browser }} \
             -Dheadless=${{ github.event.inputs.headless || 'true' }} \
             -Ddefault.timeout=$TIMEOUT -Dtest="$TESTS"
-
       - name: Generate Allure Report
         if: steps.filter.outputs.skip != 'true'
         run: mvn allure:report
-
       - name: Upload Allure Results
         if: steps.filter.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
@@ -171,7 +161,6 @@ jobs:
           name: allure-results-${{ matrix.browser }}-${{ github.run_number }}
           path: target/allure-results/
           retention-days: 14
-
       - name: Deploy Allure Report
         if: steps.filter.outputs.skip != 'true' && matrix.browser == 'chromium'
         uses: peaceiris/actions-gh-pages@v4
@@ -179,7 +168,6 @@ jobs:
           personal_token: ${{ secrets.GH_PAT }}
           publish_branch: gh-pages
           publish_dir: target/allure-report
-
       - name: Check test results
         if: steps.filter.outputs.skip != 'true' && steps.run_tests.outcome == 'failure'
         run: exit 1

@@ -1,13 +1,8 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Smoke Tests — fast sanity check on every push
-# ──────────────────────────────────────────────────────────────────────────────
+# Portfolio showcase — manual trigger only
+# Auto-triggers disabled. Adapt to your project before enabling.
 name: Smoke Tests
-
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
-
 jobs:
   smoke:
     name: Smoke Tests — Chromium
