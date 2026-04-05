@@ -10,7 +10,7 @@
 
 **KratosQA-Architect** is a senior-level, production-grade test automation framework architecture targeting a SaaS web application. It goes beyond conventional frameworks by embedding a full AI agent system that learns from every CI run, self-heals broken locators, validates requirements before test generation, and autonomously fills coverage gaps.
 
-> ⚠️ **Portfolio Note:** This is a public architecture showcase. The actual test suite targets a proprietary SaaS application and remains in a private repository. All framework infrastructure, AI agents, CI workflows, and architectural patterns are presented here as a portfolio reference.
+> ⚠️ **Portfolio Note:** This is a public architecture showcase built by **Naveen Pavithran** (Senior QA Lead). The actual test suite targets a proprietary SaaS application and remains in a private repository owned by Naveen Pavithran. All framework infrastructure, AI agents, CI workflows, and architectural patterns presented here are original work authored by Naveen Pavithran and shared as a portfolio reference.
 
 ---
 
@@ -265,9 +265,9 @@ claude
 
 ## Author
 
-**Naveen** — Senior QA Lead
+**Naveen Pavithran** — Senior QA Lead
 [GitHub Profile](https://github.com/SpartanzWarrior47)
 
 ---
 
-*Built with Java 17 · Playwright · TestNG · Allure · Claude API · GitHub Actions*
+*Original work by Naveen Pavithran · Java 17 · Playwright · TestNG · Allure · Claude API · GitHub Actions*
