@@ -237,32 +237,6 @@ This architecture additionally has:
 
 ---
 
-## Getting Started (Adapting to Your Project)
-
-```bash
-# Clone this repo
-git clone https://github.com/SpartanzWarrior47/KratosQA-Architect.git
-
-# Add required secrets to your GitHub repo:
-# ANTHROPIC_API_KEY, GH_PAT, SLACK_WEBHOOK_URL, N8N_WEBHOOK_URL
-
-# Install Claude Code CLI for local agent usage
-npm install -g @anthropic-ai/claude-code
-
-# Launch agents locally
-cd your-project
-claude
-
-# Available slash commands
-/generate-strategy <requirement>
-/generate-tests <PageName> starting from TC-001
-/analyze-failure <stack trace>
-/detect-flaky
-/sentinel-audit <file path>
-```
-
----
-
 ## Author
 
 **Naveen Pavithran** — Senior QA Lead
